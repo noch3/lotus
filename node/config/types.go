@@ -93,7 +93,7 @@ type DealmakingConfig struct {
 	// as a multiplier of the minimum collateral bound
 	MaxProviderCollateralMultiplier uint64
 
-	// The maximum number of parallel online data transfers (storage+retrieval)
+	// The maximum number of parallel online data transfers for retrieval deals
 	SimultaneousTransfers uint64
 
 	// A command used for fine-grained evaluation of storage deals
@@ -309,8 +309,7 @@ type Client struct {
 	IpfsOnlineMode      bool
 	IpfsMAddr           string
 	IpfsUseForRetrieval bool
-	// The maximum number of simultaneous data transfers between the client
-	// and storage providers
+	// The maximum number of simultaneous data transfers between storage providers and retrieval clients
 	SimultaneousTransfers uint64
 }
 

@@ -48,6 +48,7 @@ var multisigCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		msigCreateCmd,
 		msigInspectCmd,
+		msigInspectJsonCmd,
 		msigProposeCmd,
 		msigRemoveProposeCmd,
 		msigApproveCmd,
@@ -183,6 +184,107 @@ var msigCreateCmd = &cli.Command{
 		fmt.Fprintln(cctx.App.Writer, "Created new multisig: ", execreturn.IDAddress, execreturn.RobustAddress)
 
 		// TODO: maybe register this somewhere
+		return nil
+	},
+}
+
+// Hack
+type MsigPendingTxn = struct {
+	Id       int64             `json:"id"`
+	To       string            `json:"to"`
+	Value    big.Int           `json:"value"`
+	Method   abi.MethodNum     `json:"method"`
+	Params   string            `json:"params"`
+	Approved []address.Address `json:"approved"`
+}
+
+var msigInspectJsonCmd = &cli.Command{
+	Name:      "inspectjson",
+	Usage:     "Inspect a multisig wallet",
+	ArgsUsage: "[address]",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "vesting",
+			Usage: "Include vesting details",
+		},
+		&cli.BoolFlag{
+			Name:  "decode-params",
+			Usage: "Decode parameters of transaction proposals",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		if !cctx.Args().Present() {
+			return ShowHelp(cctx, fmt.Errorf("must specify address of multisig to inspect"))
+		}
+
+		api, closer, err := GetFullNodeAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer closer()
+		ctx := ReqContext(cctx)
+
+		store := adt.WrapStore(ctx, cbor.NewCborStore(blockstore.NewAPIBlockstore(api)))
+
+		maddr, err := address.NewFromString(cctx.Args().First())
+		if err != nil {
+			return err
+		}
+
+		head, err := api.ChainHead(ctx)
+		if err != nil {
+			return err
+		}
+
+		act, err := api.StateGetActor(ctx, maddr, head.Key())
+		if err != nil {
+			return err
+		}
+
+		mstate, err := multisig.Load(store, act)
+		if err != nil {
+			return err
+		}
+
+		pending := make(map[int64]multisig.Transaction)
+		if err := mstate.ForEachPendingTxn(func(id int64, txn multisig.Transaction) error {
+			pending[id] = txn
+			return nil
+		}); err != nil {
+			return xerrors.Errorf("reading pending transactions: %w", err)
+		}
+
+		if len(pending) > 0 {
+			var txids []int64
+			for txid := range pending {
+				txids = append(txids, txid)
+			}
+			sort.Slice(txids, func(i, j int) bool {
+				return txids[i] < txids[j]
+			})
+
+			for _, txid := range txids {
+				tx := pending[txid]
+				target := tx.To.String()
+				paramStr := fmt.Sprintf("%x", tx.Params)
+
+				msigPendingTxn := MsigPendingTxn{
+					Id:       txid,
+					To:       target,
+					Value:    tx.Value,
+					Method:   tx.Method,
+					Params:   paramStr,
+					Approved: tx.Approved,
+				}
+
+				jsonOut, err := json.Marshal(msigPendingTxn)
+				if err != nil {
+					panic("didn't work")
+				}
+				fmt.Printf("%s\n", string(jsonOut))
+			}
+		}
+
 		return nil
 	},
 }
